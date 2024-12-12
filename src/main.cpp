@@ -178,6 +178,25 @@ static String join (const char delimiter, const Args &...args) {
     return result;
 }
 
+static String debugHexString (const String &data) {
+    String r;
+    const auto x = hexStringToBytes (data);
+    if (x.size () > 0) {
+        bool printable = true;
+        for (int i = 0; i < x.size () && printable; i++)
+            if (! isPrintable (x [i]))
+                printable = false;
+        if (printable) {
+            r.reserve (x.size ());
+            r += ", printable=<<";
+            for (uint8_t byte : x)
+                r += (char) byte;
+            r += ">>";
+        }
+    }
+    return "size=" + String (data.length ()) + ", data=" + data + r;
+}
+
 // -----------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------
 
@@ -207,6 +226,7 @@ void inline startWiFi () {
 #include "RakDeviceCommon.hpp"
 #include "RakDeviceCommands.hpp"
 #include "RakDeviceManager.hpp"
+#include "RakDeviceMessenger.hpp"
 
 #include "Secrets.hpp"
 
@@ -216,11 +236,35 @@ HardwareSerial serial (serialId);
 RakDeviceManager *rak3272 = nullptr;
 const RakDeviceManager::Config rak3272_config = {
     .loraIdentifiers = {
-        .devEUI = LORA_DEVEUI,
-        .appEUI = LORA_APPEUI,
-        .appKey = LORA_APPKEY
-    }
+                        .devEUI = LORA_DEVEUI,
+                        .appEUI = LORA_APPEUI,
+                        .appKey = LORA_APPKEY }
 };
+
+RakDeviceMessenger *rak3272_messenger = nullptr;
+
+void loraEventHandler (const RakDeviceManager::Event event, const RakDeviceManager::EventArgs &args) {
+    switch (event) {
+    case RakDeviceManager::Event::JOIN_PENDING :
+        Serial.println ("LORA EVENT: Join pending");
+        break;
+    case RakDeviceManager::Event::JOIN_SUCCESS :
+        Serial.printf ("LORA EVENT: Join success, addr=%s\n", args [0].c_str ());
+        break;
+    case RakDeviceManager::Event::JOIN_FAILURE :
+        Serial.printf ("LORA EVENT: Join failed, reason=%s\n", args [0].c_str ());
+        break;
+    case RakDeviceManager::Event::DATA_RECEIVED :
+        Serial.printf ("LORA EVENT: Data received: port=%s, data=%s\n", args [0].c_str (), args [1].c_str ());
+        break;
+    case RakDeviceManager::Event::TRANSMIT_SUCCESS :
+        Serial.println ("LORA EVENT: Transmit success");
+        break;
+    case RakDeviceManager::Event::TRANSMIT_FAILURE :
+        Serial.println ("LORA EVENT: Transmit failure");
+        break;
+    }
+}
 
 void setup () {
     delay (2 * 1000);
@@ -239,6 +283,9 @@ void setup () {
     rak3272 = new RakDeviceManager (rak3272_config, serial);
     if (! rak3272->setup ())
         Serial.printf ("RAK3272 failed to setup\n");
+    rak3272->addEventListener (loraEventHandler);
+
+    rak3272_messenger = new RakDeviceMessenger (*rak3272);
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -250,9 +297,15 @@ void loop () {
     second.wait ();
 
     rak3272->process ();
-    if (rak3272->isAvailable () && ping) {
+    rak3272_messenger->process ();
+
+    RakDeviceMessenger::Message message;
+    while (rak3272_messenger->receive (message))
+        Serial.printf ("Received message on port %d: %s\n", message.port, message.data.c_str ());
+
+    if (rak3272->isAvailable () && rak3272_messenger->transmit_queue_size () < 32 && ping) {
         static int counter = 1;
-        rak3272->transmit (1, "{\"ping\": \"" + String (counter++) + "\"}");
+        rak3272_messenger->transmit (RakDeviceMessenger::Message (Lora::Port (1), "{\"ping\": \"" + String (counter++) + "\"}"));
     }
 }
 

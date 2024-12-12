@@ -4,26 +4,32 @@
 
 #include <map>
 
-#if defined(DEBUG_RAKDEVICE) && ! defined(DEBUG_PRINTF)
+#if defined(DEBUG_RAKDEVICE)
 #ifndef DEBUG_RAKDEVICE_SERIAL
 #define DEBUG_RAKDEVICE_SERIAL Serial
 #endif
 #ifndef DEBUG_RAKDEVICE_SERIAL_BAUD
 #define DEBUG_RAKDEVICE_SERIAL_BAUD 115200
 #endif
+#ifndef DEBUG_START
 #define DEBUG_START(...) DEBUG_RAKDEVICE_SERIAL.begin (DEBUG_RAKDEVICE_SERIAL_BAUD);
+#endif
+#ifndef DEBUG_END
 #define DEBUG_END(...)               \
     DEBUG_RAKDEVICE_SERIAL.flush (); \
     DEBUG_RAKDEVICE_SERIAL.end ();
-#define DEBUG_PRINTF    DEBUG_RAKDEVICE_SERIAL.printf
-#define DEBUG_ONLY(...) __VA_ARGS__
+#endif    
+#define RAKDEVICE_DEBUG_PRINTF    DEBUG_RAKDEVICE_SERIAL.printf
 #else
+#ifndef DEBUG_START
 #define DEBUG_START(...)
+#endif
+#ifndef DEBUG_END
 #define DEBUG_END(...)
-#define DEBUG_PRINTF(...) \
+#endif
+#define RAKDEVICE_DEBUG_PRINTF(...) \
     do {                  \
     } while (0)
-#define DEBUG_ONLY(...)
 #endif
 
 // -----------------------------------------------------------------------------------------------
@@ -249,7 +255,7 @@ public:
     }
     bool send (const String &cmd) {
 #ifdef DEBUG_RAKDEVICE_TRANSCEIVER
-        DEBUG_PRINTF ("-TX-> <<%s>>\n", cmd.c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("-TX-> <<%s>>\n", cmd.c_str ());
 #endif
         _stream.print (cmd + "\n");
         return true;
@@ -273,7 +279,7 @@ public:
             buffer.trim ();
 #ifdef DEBUG_RAKDEVICE_TRANSCEIVER
             if (! buffer.isEmpty ())
-                DEBUG_PRINTF ("<-RX- <<%s>>\n", buffer.c_str ());
+                RAKDEVICE_DEBUG_PRINTF ("<-RX- <<%s>>\n", buffer.c_str ());
 #endif
         }
         return buffer;
@@ -368,7 +374,7 @@ public:
         else if (communique == String ("------------------------------------------------------") || communique == String ("RAKwireless RAK3272-SiP Example"))
             ;
         else {
-            DEBUG_PRINTF ("RakDeviceCommander::processUnsolicited: unprocessable = <<%s>>\n", communique.c_str ());
+            RAKDEVICE_DEBUG_PRINTF ("RakDeviceCommander::processUnsolicited: unprocessable = <<%s>>\n", communique.c_str ());
             return false;
         }
         return true;
@@ -391,11 +397,11 @@ public:
                 if (response == "AT_BUSY_ERROR") {
                     if (tries ++ >= AT_BUSY_TRIES)
                         return false;
-                    DEBUG_PRINTF ("RakDeviceCommander::issue: AT_BUSY, retry #%d\n", tries);
+                    RAKDEVICE_DEBUG_PRINTF ("RakDeviceCommander::issue: AT_BUSY, retry #%d\n", tries);
                     delay (AT_BUSY_DELAY);
                 } else {                                        
                     if (!processUnsolicited (response)) // typically restricted wait
-                        DEBUG_PRINTF ("RakDeviceCommander::issue: invalid-response = <<%s>>\n", response.c_str ());
+                        RAKDEVICE_DEBUG_PRINTF ("RakDeviceCommander::issue: invalid-response = <<%s>>\n", response.c_str ());
                     return responseResult;
                 }
             } else {

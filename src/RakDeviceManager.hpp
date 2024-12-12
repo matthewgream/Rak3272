@@ -2,25 +2,6 @@
 // -----------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------
 
-static String debugHexString (const String &data) {
-    String r;
-    const auto x = hexStringToBytes (data);
-    if (x.size () > 0) {
-        bool printable = true;
-        for (int i = 0; i < x.size () && printable; i++)
-            if (! isPrintable (x [i]))
-                printable = false;
-        if (printable) {
-            r.reserve (x.size ());
-            r += ", printable=<<";
-            for (uint8_t byte : x)
-                r += (char) byte;
-            r += ">>";
-        }
-    }
-    return "size=" + String (data.length ()) + ", data=" + data + r;
-}
-
 class RakDeviceManager {
 public:
     static inline constexpr uint32_t TRANSMIT_AWAIT_CONFIRMATION_DELAY = 100;
@@ -34,7 +15,7 @@ public:
     struct ConfigLoraIdentifiers {
         String devEUI, appEUI, appKey;
     };
-    struct ConfigLoraParameters {  
+    struct ConfigLoraParameters {
         Lora::AutoJoin autoJoin { Lora::AutoJoin::NO_AUTOJOIN };
         bool confirmMode { true };          // Use confirmed messages
         bool dutyCycle { true };            // Enable duty cycle
@@ -58,6 +39,55 @@ public:
         interval_t linkCheckInterval { 2 * 60 * 1000 };
         interval_t networkTimeInterval { 30 * 60 * 1000 };
     };
+
+    enum class State {
+        UNINITIALISED = 0,
+        INITIALISED = 1,
+        SUSPENDED = 2,
+        JOIN_PENDING = 3,
+        JOIN_SUCCESS = 4,
+        JOIN_FAILURE = 5
+    };
+    static String toString (const State state) {
+        if (state == State::UNINITIALISED)
+            return "UNINITIALISED";
+        else if (state == State::INITIALISED)
+            return "INITIALISED";
+        else if (state == State::SUSPENDED)
+            return "SUSPENDED";
+        else if (state == State::JOIN_PENDING)
+            return "JOIN_PENDING";
+        else if (state == State::JOIN_SUCCESS)
+            return "JOIN_SUCCESS";
+        else if (state == State::JOIN_FAILURE)
+            return "JOIN_FAILURE";
+        else
+            return "UNKNOWN";
+    }
+
+    enum class Event {
+        JOIN_PENDING,
+        JOIN_SUCCESS,
+        JOIN_FAILURE,
+        DATA_RECEIVED,
+        TRANSMIT_SUCCESS,
+        TRANSMIT_FAILURE,
+        NETWORK_TIME,
+        STATUS_LINK,
+        STATUS_RECEIVE,
+        STATUS_CHANNEL,
+    };
+    using EventHandlerId = size_t;
+    using EventArgs = std::vector<String>;
+    using EventHandler = std::function<void (const Event, const EventArgs &args)>;
+    EventHandlerId addEventListener (const EventHandler &handler) {
+        EventHandlerId id = _nextHandlerId++;
+        _eventHandlers [id] = handler;
+        return id;
+    }
+    void removeEventListener (const EventHandlerId id) {
+        _eventHandlers.erase (id);
+    }
 
     struct Status {
         using Channels = RakDeviceCommand_RSSI_ALL::ChannelsRSSI;
@@ -85,34 +115,17 @@ private:
     RakDeviceCommander _commander;
     Status _status;
 
-    enum class State {
-        UNINITIALISED = 0,
-        INITIALISED = 1,
-        SUSPENDED = 2,
-        JOIN_PENDING = 3,
-        JOIN_SUCCESS = 4,
-        JOIN_FAILURE = 5
-    } _state { State::UNINITIALISED },
-        _stateSuspended;
+    EventHandlerId _nextHandlerId = 1;
+    std::map<EventHandlerId, EventHandler> _eventHandlers;
+    void notifyEventListeners (const Event event, const EventArgs &args) {
+        for (const auto &[id, handler] : _eventHandlers)
+            if (handler)
+                handler (event, args);
+    }
+
+    State _state { State::UNINITIALISED }, _stateSuspended;
 
     Intervalable _networkRestriction;
-
-    static String toString (const State state) {
-        if (state == State::UNINITIALISED)
-            return "UNINITIALISED";
-        else if (state == State::INITIALISED)
-            return "INITIALISED";
-        else if (state == State::SUSPENDED)
-            return "SUSPENDED";
-        else if (state == State::JOIN_PENDING)
-            return "JOIN_PENDING";
-        else if (state == State::JOIN_SUCCESS)
-            return "JOIN_SUCCESS";
-        else if (state == State::JOIN_FAILURE)
-            return "JOIN_FAILURE";
-        else
-            return "UNKNOWN";
-    }
 
     Intervalable _intervalRejoin;
     Intervalable _intervalStatus, _intervalLinkCheck, _intervalNetworkTime;
@@ -151,7 +164,7 @@ public:
         _status.hardwareid = commandHardwareId.responseGet ();
         _status.serialno = commandSerialNo.responseGet ();
         _status.apiversion = commandApiVersion.responseGet ();
-        DEBUG_PRINTF ("RakDeviceManager::setup: Version=%s, Hardware=%s, HardwareId=%s, Serialno=%s, APIversion=%s\n", _status.version.c_str (), _status.hardware.c_str (), _status.hardwareid.c_str (), _status.serialno.c_str (), _status.apiversion.c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::setup: Version=%s, Hardware=%s, HardwareId=%s, Serialno=%s, APIversion=%s\n", _status.version.c_str (), _status.hardware.c_str (), _status.hardwareid.c_str (), _status.serialno.c_str (), _status.apiversion.c_str ());
 
         RakDeviceCommand_NWM commandModeNetworkSet (static_cast<int> (_config.loraOperation.mode));
         if (! _commander.issue (commandModeNetworkSet).success)
@@ -168,14 +181,14 @@ public:
         RakDeviceCommand_BAND commandBandSet (static_cast<int> (_config.loraOperation.band));
         if (! _commander.issue (commandBandSet).success)
             return false;
-        DEBUG_PRINTF ("RakDeviceManager::setup: Mode=%s, Join=%s, Class=%s, Band=%s\n", Lora::toString (_config.loraOperation.mode).c_str (), Lora::toString (_config.loraOperation.join).c_str (), Lora::toString (_config.loraOperation.clazz).c_str (), Lora::toString (_config.loraOperation.band).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::setup: Mode=%s, Join=%s, Class=%s, Band=%s\n", Lora::toString (_config.loraOperation.mode).c_str (), Lora::toString (_config.loraOperation.join).c_str (), Lora::toString (_config.loraOperation.clazz).c_str (), Lora::toString (_config.loraOperation.band).c_str ());
 
         RakDeviceCommand_DEVEUI commandDevEuiSet (_config.loraIdentifiers.devEUI);
         RakDeviceCommand_APPEUI commandAppEuiSet (_config.loraIdentifiers.appEUI);
         RakDeviceCommand_APPKEY commandAppKeySet (_config.loraIdentifiers.appKey);
         if (! _commander.issue (commandDevEuiSet).success || ! _commander.issue (commandAppEuiSet).success || ! _commander.issue (commandAppKeySet).success)
             return false;
-        DEBUG_PRINTF ("RakDeviceManager::setup: DevEUI=%s, AppEUI=%s, AppKey=%s\n", _config.loraIdentifiers.devEUI.c_str (), _config.loraIdentifiers.appEUI.c_str (), _config.loraIdentifiers.appKey.c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::setup: DevEUI=%s, AppEUI=%s, AppKey=%s\n", _config.loraIdentifiers.devEUI.c_str (), _config.loraIdentifiers.appEUI.c_str (), _config.loraIdentifiers.appKey.c_str ());
 
         RakDeviceCommand_CONFIRM_MODE commandConfirmModeSet (_config.loraParameters.confirmMode);
         RakDeviceCommand_DUTY_CYCLE commandDutyCycleSet (_config.loraParameters.dutyCycle);
@@ -207,7 +220,7 @@ public:
     }
 
     void process () {
-        DEBUG_PRINTF ("RakDeviceManager::STATE: %s\n", toString (_state).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::STATE: %s\n", toString (_state).c_str ());
 
         if (! (_state == State::JOIN_PENDING || _state == State::JOIN_FAILURE || _state == State::JOIN_SUCCESS))
             return;
@@ -264,12 +277,13 @@ public:
 
     const Status &status () const { return _status; }
     bool isAvailable () const { return _state == State::JOIN_SUCCESS; }
+    const State getState () const { return _state; }
 
 private:
     //
 
     void joinCommence () {
-        DEBUG_PRINTF ("RakDeviceManager::JOIN-COMMENCE\n");
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::JOIN-COMMENCE\n");
         RakDeviceCommand_JOIN commandJoin (RakDeviceCommand_JOIN::Command::JOIN, _config.loraParameters.autoJoin, _config.loraParameters.joinAttemptsDelay, _config.loraParameters.joinAttemptsNumber);
         if (_commander.issue (commandJoin).success)
             joinPending ();
@@ -277,21 +291,24 @@ private:
             joinFailure ("unable to issue JOIN request");
     }
     void joinPending () {
-        DEBUG_PRINTF ("RakDeviceManager::JOIN-PENDING\n");
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::JOIN-PENDING\n");
         _intervalRejoin.reset ();
         _state = State::JOIN_PENDING;
+        notifyEventListeners (Event::JOIN_PENDING, EventArgs ());
     }
     void joinSuccess () {
         RakDeviceCommand_DEVADDR commandDevAddr;
         if (_commander.issue (commandDevAddr).success)
             _status.devAddr = commandDevAddr.getValue ();
-        DEBUG_PRINTF ("RakDeviceManager::JOIN-SUCCESS: DevAddr=%s\n", _status.devAddr.c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::JOIN-SUCCESS: DevAddr=%s\n", _status.devAddr.c_str ());
         updateStatus ();
         _state = State::JOIN_SUCCESS;
+        notifyEventListeners (Event::JOIN_SUCCESS, { _status.devAddr });
     }
     void joinFailure (const String &reason = String ()) {
-        DEBUG_PRINTF ("RakDeviceManager::JOIN-FAILURE%s%s\n", (reason.isEmpty () ? "" : ": "), reason.c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::JOIN-FAILURE%s%s\n", (reason.isEmpty () ? "" : ": "), reason.c_str ());
         _state = State::JOIN_FAILURE;
+        notifyEventListeners (Event::JOIN_FAILURE, { reason });
     }
     void updateJoinStatus () {
         if (_intervalRejoin) {
@@ -314,7 +331,7 @@ private:
     //
 
     bool processTransmit (Lora::Port port, const String &data, const bool awaitConfirmation = false) {
-        DEBUG_PRINTF ("RakDeviceManager::TRANSMIT-DATA: port=%d, %s\n", port, debugHexString (data).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::TRANSMIT-DATA: port=%d, %s\n", port, debugHexString (data).c_str ());
         RakDeviceCommand_SEND commandSend (port, data);
         if (! _commander.issue (commandSend).success)
             return false;
@@ -339,20 +356,23 @@ private:
     }
     void updateTransmitStatus (const RakDeviceCommand_SEND &commandSend) {
         const bool wasConfirmed = commandSend.wasConfirmed ();
-        DEBUG_PRINTF ("RakDeviceManager::TRANSMIT-CONF: %s\n", wasConfirmed ? "true" : "false");
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::TRANSMIT-CONF: %s\n", wasConfirmed ? "true" : "false");
         _status.transmitConfirmation = wasConfirmed;
-        if (wasConfirmed)
+        if (wasConfirmed) {
             _transmitSuccesses++;
-        else
+            notifyEventListeners (Event::TRANSMIT_SUCCESS, EventArgs ());
+        } else {
             _transmitFailures++;
+            notifyEventListeners (Event::TRANSMIT_FAILURE, EventArgs ());
+        }
     }
 
     //
 
     void processReceive (const Lora::Port port, const String &data) {
-        DEBUG_PRINTF ("RakDeviceManager::RECEIVE-DATA: port=%d, %s\n", port, debugHexString (data).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::RECEIVE-DATA: port=%d, %s\n", port, debugHexString (data).c_str ());
         _receiveCounter++;
-        // XXX callback
+        notifyEventListeners (Event::DATA_RECEIVED, { String (port), data });
     }
     void updateReceive (const Lora::Class class_, const String &details) {
         // <-RX- <<+EVT:RX_1:-107:-7:UNICAST:15:beef>>details
@@ -391,21 +411,21 @@ private:
 
     void updateNetworkRestriction () {
         if (_networkRestriction) {
-            DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: completed\n");
+            RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: completed\n");
             _networkRestriction.reset (0);
         } else {
-            DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: continues, for another %f mins\n", ((float) (_networkRestriction.remaining ())) / 1000.0f / 60.0f);
+            RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: continues, for another %f mins\n", ((float) (_networkRestriction.remaining ())) / 1000.0f / 60.0f);
         }
     }
     void updateNetworkRestriction (const interval_t milliseconds) {
-        DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: notified, for another %f mins\n", ((float) milliseconds) / 1000.0f / 60.0f);
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::RESTRICTION: notified, for another %f mins\n", ((float) milliseconds) / 1000.0f / 60.0f);
         _networkRestriction.reset (milliseconds);
     }
 
     //
 
     void updateWorkMode (const Lora::Mode mode) {
-        DEBUG_PRINTF ("RakDeviceManager::WORK-MODE: %s\n", Lora::toString (mode));
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::WORK-MODE: %s\n", Lora::toString (mode));
     }
 
     //
@@ -424,7 +444,8 @@ private:
             if (_commander.issue (commandTimeRetrieve).success) {
                 _status.networkTime = commandTimeRetrieve.responseGet ();
                 _intervalNetworkTime.reset ();
-                DEBUG_PRINTF ("RakDeviceManager::NETWORK-TIME: %s\n", _status.networkTime.get ().c_str ());
+                RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::NETWORK-TIME: %s\n", _status.networkTime.get ().c_str ());
+                notifyEventListeners (Event::NETWORK_TIME, { _status.networkTime });
             } else
                 _status.networkTime.invalidate ();
         }
@@ -462,15 +483,25 @@ private:
 
     void updateStatusReceive (const Lora::ReceiveStatus &status) {
         _status.receiveStatus = status;
-        DEBUG_PRINTF ("RakDeviceManager::STATUS-RECEIVE: %s\n", Lora::toString (status).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::STATUS-RECEIVE: %s\n", Lora::toString (status).c_str ());
+        if (status.RSSI != 0)
+            notifyEventListeners (Event::STATUS_RECEIVE, { Lora::toString (status), String (status.RSSI) });
     }
     void updateStatusLink (const Lora::LinkStatus &status) {
         _status.linkStatus = status;
-        DEBUG_PRINTF ("RakDeviceManager::STATUS-LINK: %s\n", Lora::toString (status).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::STATUS-LINK: %s\n", Lora::toString (status).c_str ());
+        if (status.RSSI != 0)
+            notifyEventListeners (Event::STATUS_LINK, { Lora::toString (status), String (status.RSSI) });
     }
     void updateStatusChannel (const Status::Channels &status) {
         _status.channelStatus = status;
-        DEBUG_PRINTF ("RakDeviceManager::STATUS-CHANNEL: %s\n", Status::toString (status).c_str ());
+        RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::STATUS-CHANNEL: %s\n", Status::toString (status).c_str ());
+        bool nonZeroRSSI = false;
+        for (const auto& channelRSSI: status)
+            if (channelRSSI.second != Lora::RSSI (0))
+                nonZeroRSSI = true;
+        if (nonZeroRSSI)
+            notifyEventListeners (Event::STATUS_CHANNEL, { Status::toString (status) });
     }
 
     //
@@ -497,7 +528,7 @@ private:
         else if (event.type == "CurrentWorkMode")
             updateWorkMode ((event.args == "LoRaWAN" ? Lora::Mode::MODE_LORAWAN : (event.args == "P2PLoRa" ? Lora::Mode::MODE_P2PLORA : (event.args == "P2PFSK" ? Lora::Mode::MODE_P2PFSK : Lora::Mode::MODE_UNDEFINED))));    // Current Work Mode: LoRaWAN.
         else
-            DEBUG_PRINTF ("RakDeviceManager::EVENT: UNHANDLED, type=(%s), args=(%s)\n", event.type.c_str (), event.args.c_str ());
+            RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::EVENT: UNHANDLED, type=(%s), args=(%s)\n", event.type.c_str (), event.args.c_str ());
     }
 };
 
