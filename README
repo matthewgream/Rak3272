@@ -1,0 +1,1 @@
+Arduino module for using the RakWireless RAK3272 SiP board with AT command set using RU13 command set. Tested via. TTN using Heltec M7603 LoRA gateway. 
