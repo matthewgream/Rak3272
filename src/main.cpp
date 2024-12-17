@@ -235,6 +235,9 @@ void inline startWiFi () {
 const int serialId = 1;
 HardwareSerial serial (serialId);
 
+#define PIN_RAK3272_TX     GPIO_NUM_2
+#define PIN_RAK3272_RX     GPIO_NUM_1
+
 RakDeviceManager *rak3272 = nullptr;
 const RakDeviceManager::Config rak3272_config = {
     .loraIdentifiers = {
@@ -243,7 +246,7 @@ const RakDeviceManager::Config rak3272_config = {
                         .appKey = LORA_APPKEY }
 };
 
-RakDeviceMessenger *rak3272_messenger = nullptr;
+//RakDeviceMessenger *rak3272_messenger = nullptr;
 
 void loraEventHandler (const RakDeviceManager::Event event, const RakDeviceManager::EventArgs &args) {
     switch (event) {
@@ -275,7 +278,7 @@ void setup () {
 
     startWiFi ();
 
-    const gpio_num_t pin_rx = GPIO_NUM_4, pin_tx = GPIO_NUM_3;
+    const gpio_num_t pin_rx = PIN_RAK3272_RX, pin_tx = PIN_RAK3272_TX;
     pinMode (pin_rx, INPUT);
     pinMode (pin_tx, OUTPUT);
     serial.setRxBufferSize (1024);
@@ -287,7 +290,7 @@ void setup () {
         Serial.printf ("RAK3272 failed to setup\n");
     rak3272->addEventListener (loraEventHandler);
 
-    rak3272_messenger = new RakDeviceMessenger (*rak3272);
+//    rak3272_messenger = new RakDeviceMessenger (*rak3272);
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -299,15 +302,17 @@ void loop () {
     second.wait ();
 
     rak3272->process ();
-    rak3272_messenger->process ();
+    // rak3272_messenger->process ();
 
-    RakDeviceMessenger::Message message;
-    while (rak3272_messenger->receive (message))
-        Serial.printf ("Received message on port %d: %s\n", message.port, message.data.c_str ());
+    // RakDeviceMessenger::Message message;
+    // while (rak3272_messenger->receive (message))
+    //     Serial.printf ("Received message on port %d: %s\n", message.port, message.data.c_str ());
 
-    if (rak3272->isAvailable () && rak3272_messenger->transmit_queue_size () < 32 && ping) {
+    // if (rak3272->isAvailable () && rak3272_messenger->transmit_queue_size () < 32 && ping) {
+    if (rak3272->isAvailable () && ping) {
         static int counter = 1;
-        rak3272_messenger->transmit (RakDeviceMessenger::Message (Lora::Port (1), "{\"ping\": \"" + String (counter++) + "\"}"));
+        rak3272->transmit (Lora::Port (1), "{\"ping\": \"" + String (counter++) + "\"}");
+        // rak3272_messenger->transmit (RakDeviceMessenger::Message (Lora::Port (1), "{\"ping\": \"" + String (counter++) + "\"}"));
     }
 }
 
