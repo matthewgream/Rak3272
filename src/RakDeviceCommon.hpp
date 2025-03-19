@@ -18,8 +18,8 @@
 #define DEBUG_END(...)               \
     DEBUG_RAKDEVICE_SERIAL.flush (); \
     DEBUG_RAKDEVICE_SERIAL.end ();
-#endif    
-#define RAKDEVICE_DEBUG_PRINTF    DEBUG_RAKDEVICE_SERIAL.printf
+#endif
+#define RAKDEVICE_DEBUG_PRINTF DEBUG_RAKDEVICE_SERIAL.printf
 #else
 #ifndef DEBUG_START
 #define DEBUG_START(...)
@@ -28,7 +28,7 @@
 #define DEBUG_END(...)
 #endif
 #define RAKDEVICE_DEBUG_PRINTF(...) \
-    do {                  \
+    do {                            \
     } while (0)
 #endif
 
@@ -395,12 +395,12 @@ public:
             const RakDeviceResult responseResult = cmd.responseSet (response);
             if (! responseResult.success) {
                 if (response == "AT_BUSY_ERROR") {
-                    if (tries ++ >= AT_BUSY_TRIES)
+                    if (tries++ >= AT_BUSY_TRIES)
                         return false;
                     RAKDEVICE_DEBUG_PRINTF ("RakDeviceCommander::issue: AT_BUSY, retry #%d\n", tries);
                     delay (AT_BUSY_DELAY);
-                } else {                                        
-                    if (!processUnsolicited (response)) // typically restricted wait
+                } else {
+                    if (! processUnsolicited (response))    // typically restricted wait
                         RAKDEVICE_DEBUG_PRINTF ("RakDeviceCommander::issue: invalid-response = <<%s>>\n", response.c_str ());
                     return responseResult;
                 }

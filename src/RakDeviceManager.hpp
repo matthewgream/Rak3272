@@ -143,12 +143,12 @@ public:
         _intervalLinkCheck (config.linkCheckInterval),
         _intervalNetworkTime (config.networkTimeInterval) { }
     ~RakDeviceManager () {
-        teardown ();
+        end ();
     }
 
     //
 
-    bool setup () {
+    bool begin () {
         if (_state != State::UNINITIALISED)
             return false;
 
@@ -211,7 +211,7 @@ public:
         return true;
     }
 
-    void teardown () {
+    void end () {
         if (_state == State::UNINITIALISED)
             return;
 
@@ -497,7 +497,7 @@ private:
         _status.channelStatus = status;
         RAKDEVICE_DEBUG_PRINTF ("RakDeviceManager::STATUS-CHANNEL: %s\n", Status::toString (status).c_str ());
         bool nonZeroRSSI = false;
-        for (const auto& channelRSSI: status)
+        for (const auto &channelRSSI : status)
             if (channelRSSI.second != Lora::RSSI (0))
                 nonZeroRSSI = true;
         if (nonZeroRSSI)

@@ -235,8 +235,8 @@ void inline startWiFi () {
 const int serialId = 1;
 HardwareSerial serial (serialId);
 
-#define PIN_RAK3272_TX     GPIO_NUM_2
-#define PIN_RAK3272_RX     GPIO_NUM_1
+static inline constexpr gpio_num_t PIN_RAK3272_TX = GPIO_NUM_2;
+static inline constexpr gpio_num_t PIN_RAK3272_RX = GPIO_NUM_1;
 
 RakDeviceManager *rak3272 = nullptr;
 const RakDeviceManager::Config rak3272_config = {
@@ -246,7 +246,7 @@ const RakDeviceManager::Config rak3272_config = {
                         .appKey = LORA_APPKEY }
 };
 
-//RakDeviceMessenger *rak3272_messenger = nullptr;
+// RakDeviceMessenger *rak3272_messenger = nullptr;
 
 void loraEventHandler (const RakDeviceManager::Event event, const RakDeviceManager::EventArgs &args) {
     switch (event) {
@@ -272,25 +272,24 @@ void loraEventHandler (const RakDeviceManager::Event event, const RakDeviceManag
 }
 
 void setup () {
-    delay (2 * 1000);
     Serial.begin (115200);
+    delay (2.5 * 1000);
     Serial.println ("UP");
 
     startWiFi ();
 
-    const gpio_num_t pin_rx = PIN_RAK3272_RX, pin_tx = PIN_RAK3272_TX;
-    pinMode (pin_rx, INPUT);
-    pinMode (pin_tx, OUTPUT);
+    pinMode (PIN_RAK3272_RX, INPUT);
+    pinMode (PIN_RAK3272_TX, OUTPUT);
     serial.setRxBufferSize (1024);
     serial.setTxBufferSize (512);
-    serial.begin (115200, SERIAL_8N1, pin_rx, pin_tx, false);
+    serial.begin (115200, SERIAL_8N1, PIN_RAK3272_RX, PIN_RAK3272_TX, false);
 
     rak3272 = new RakDeviceManager (rak3272_config, serial);
-    if (! rak3272->setup ())
-        Serial.printf ("RAK3272 failed to setup\n");
+    if (! rak3272->begin ())
+        Serial.printf ("RakDeviceManager::setup () failed\n");
     rak3272->addEventListener (loraEventHandler);
 
-//    rak3272_messenger = new RakDeviceMessenger (*rak3272);
+    //    rak3272_messenger = new RakDeviceMessenger (*rak3272);
 }
 
 // -----------------------------------------------------------------------------------------------
